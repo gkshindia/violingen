@@ -212,12 +212,12 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     def _build_pairs(self, file_paths: list[str]) -> list[tuple[str, str]]:
-        """Build (in_path, out_path) pairs following the repo convention."""
+        """Build (in_path, out_path) pairs: {out_dir}/{original_name}.wav"""
         pairs: list[tuple[str, str]] = []
         for fp in file_paths:
             in_path  = str(pathlib.Path(fp).expanduser().resolve())
-            name     = pathlib.Path(fp).stem          # e.g. "2"
-            out_path = str(self.out_dir / name / f"{self.stem}.wav")
+            name     = pathlib.Path(fp).stem          # e.g. "1"
+            out_path = str(self.out_dir / f"{name}.wav")
             pairs.append((in_path, out_path))
         return pairs
 
