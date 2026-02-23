@@ -193,7 +193,26 @@ class PostProcessor:
         )
 
         with multiprocessing.Pool(self.max_workers) as pool:
-            results = pool.map(_post_process_worker, worker_args)
+            async_results = [
+                (args, pool.apply_async(_post_process_worker, (args,)))
+                for args in worker_args
+            ]
+
+            results = []
+            for args, ar in async_results:
+                try:
+                    results.append(ar.get())
+                except Exception as e:
+                    in_path = args["in_path"]
+                    self._logger.error(f"Worker crashed (segfault?) for {in_path}: {e}")
+                    self.out_dir.mkdir(parents=True, exist_ok=True)
+                    with open(self.error_log, "a") as fh:
+                        fh.write(
+                            f"--- {in_path} ---\n"
+                            f"Worker crash: {e}\n"
+                            f"{traceback.format_exc()}\n"
+                        )
+                    results.append(None)
 
         rows = [r for r in results if r is not None]
         self._write_report(rows)
