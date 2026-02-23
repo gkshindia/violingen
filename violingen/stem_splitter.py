@@ -1,90 +1,31 @@
-"""
-stem_splitter.py
-~~~~~~~~~~~~~~~~
-
-Ref: https://github.com/facebookresearch/demucs
-
-Isolate the **violin / strings** stem from a single audio file using
-Demucs `htdemucs_6s` (6-source model).
-
-In Demucs htdemucs_6s the six stems are:
-    drums  · bass  · other  · vocals  · guitar  · piano
-
-The ``other`` stem captures everything that is not one of the five named
-sources — in practice this is where violin, strings, and non-guitar
-melody instruments land.
-"""
-
-from __future__ import annotations
-
 import pathlib
-import shutil
 import tempfile
+
+import numpy as np
 
 
 class StemSplitter:
-    """
-    Separate the ``other`` stem (violin / strings) from a single audio file
-    using Demucs ``htdemucs_6s``.
-
-    Parameters
-    ----------
-    model : str
-        Demucs model name.  ``htdemucs_6s`` is the 6-source model that
-        gives a dedicated ``other`` channel (violin / strings).
-    device : str
-        Inference device — ``"cpu"``, ``"cuda"``, or ``"mps"``.
-        Use ``"mps"`` on Apple Silicon for ~3–4× CPU speed.
-    shifts : int
-        Number of random time-shift passes for equivariant stabilisation.
-        0 = off (fastest).
-    overlap : float
-        Overlap ratio between consecutive audio chunks (0 < overlap < 1).
-    clip_mode : str
-        ``"rescale"`` or ``"clamp"`` — how to prevent output clipping.
-    stem : str
-        Demucs stem file to extract.  ``"other"`` = violin / strings.
-    """
-
     def __init__(
         self,
-        model: str = "htdemucs_6s",
-        device: str = "cpu",
-        shifts: int = 0,
-        overlap: float = 0.25,
-        clip_mode: str = "rescale",
-        stem: str = "other",
-    ) -> None:
+        model="htdemucs_6s",
+        device="cpu",
+        shifts=0,
+        overlap=0.25,
+        clip_mode="rescale",
+        stem="other",
+        jobs=1,
+    ):
         self.model = model
         self.device = device
         self.shifts = shifts
         self.overlap = overlap
         self.clip_mode = clip_mode
         self.stem = stem
+        self.jobs = jobs
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def split(self, in_file_path: str, out_file_path: str) -> str:
-        """
-        Run Demucs on *in_file_path* and save the extracted stem to
-        *out_file_path*.
-
-        Parameters
-        ----------
-        in_file_path : str
-            Path to the source audio file (mp3, wav, flac, …).
-        out_file_path : str
-            Destination path for the extracted stem WAV.
-            Parent directories are created automatically.
-
-        Returns
-        -------
-        str
-            Absolute path to the saved stem file.
-        """
+    def split(self, in_file_path, out_file_path):
         import demucs.separate
+        import soundfile as sf
 
         in_path  = pathlib.Path(in_file_path).expanduser().resolve()
         out_path = pathlib.Path(out_file_path).expanduser().resolve()
@@ -92,40 +33,38 @@ class StemSplitter:
         if not in_path.exists():
             raise FileNotFoundError(f"Input file not found: {in_path}")
 
-        with tempfile.TemporaryDirectory(prefix="demucs_") as tmp_dir:
-            self._run_demucs(str(in_path), tmp_dir, demucs.separate)
-            stem_wav = self._locate_stem(tmp_dir, in_path.stem)
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(stem_wav, out_path)
+        device = self._detect_device()
+        _models = ("htdemucs", "htdemucs_ft")
 
-        print(f"[StemSplitter] stem='{self.stem}'  saved → {out_path}")
+        with tempfile.TemporaryDirectory(prefix="demucs_") as tmp_dir:
+            for m in _models:
+                self._run_demucs(str(in_path), tmp_dir, demucs.separate, model=m, device=device)
+
+            path_a = self._locate_stem(tmp_dir, in_path.stem, model=_models[0])
+            path_b = self._locate_stem(tmp_dir, in_path.stem, model=_models[1])
+            y_combined, sr = self._ensemble_max(path_a, path_b)
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(out_path, np.clip(y_combined, -1, 1).T, sr, subtype="PCM_16")
+        print(f"ensemble(htdemucs, htdemucs_ft) saved → {out_path}")
         return str(out_path)
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _run_demucs(self, in_file: str, out_dir: str, demucs_separate) -> None:
-        """Build the CLI argument list and invoke ``demucs.separate.main``."""
+    def _run_demucs(self, in_file, out_dir, demucs_separate, model=None, device=None):
         demucs_separate.main([
-            "-n", self.model,
-            "-d", self.device,
+            "-n", model or self.model,
+            "-d", device or self.device,
             "--shifts", str(self.shifts),
             "--overlap", str(self.overlap),
             "--clip-mode", self.clip_mode,
+            "-j", str(self.jobs),
             "--out", out_dir,
             in_file,
         ])
 
-    def _locate_stem(self, out_dir: str, audio_stem: str) -> pathlib.Path:
-        """
-        Find the extracted stem WAV inside the Demucs output tree.
-
-        Demucs writes:
-            ``{out_dir}/{model}/{audio_stem}/{stem_name}.wav``
-        """
+    def _locate_stem(self, out_dir, audio_stem, model=None):
+        m = model or self.model
         stem_wav = (
-            pathlib.Path(out_dir) / self.model / audio_stem / f"{self.stem}.wav"
+            pathlib.Path(out_dir) / m / audio_stem / f"{self.stem}.wav"
         )
         if not stem_wav.exists():
             raise RuntimeError(
@@ -133,3 +72,37 @@ class StemSplitter:
                 f"Available files: {list(stem_wav.parent.iterdir()) if stem_wav.parent.exists() else '(dir missing)'}"
             )
         return stem_wav
+
+    def _ensemble_max(self, path_a, path_b):
+        import torch
+        import torchaudio
+
+        wav_a, sr = torchaudio.load(str(path_a))
+        wav_b, _  = torchaudio.load(str(path_b))
+
+        n_fft  = 2048
+        hop    = 512
+        window = torch.hann_window(n_fft)
+
+        out_channels = []
+        for c in range(wav_a.shape[0]):
+            S_a = torch.stft(wav_a[c], n_fft, hop, window=window, return_complex=True)
+            S_b = torch.stft(wav_b[c], n_fft, hop, window=window, return_complex=True)
+            mask = S_a.abs() >= S_b.abs()
+            S_max = torch.where(mask, S_a, S_b)
+            ch = torch.istft(S_max, n_fft, hop, window=window, length=wav_a.shape[-1])
+            out_channels.append(ch)
+
+        return torch.stack(out_channels).numpy(), sr
+
+    @staticmethod
+    def _detect_device():
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        try:
+            if torch.backends.mps.is_available():
+                return "mps"
+        except AttributeError:
+            pass
+        return "cpu"

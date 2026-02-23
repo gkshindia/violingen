@@ -52,6 +52,7 @@ from violingen.logging import (
     log_file_error,
     log_file_result,
 )
+from violingen.post_processor import PostProcessor
 from violingen.stem_splitter import StemSplitter
 from violingen.utils import format_elapsed, make_progress_bar
 
@@ -129,6 +130,7 @@ class Orchestrator:
         overlap: float = 0.25,
         clip_mode: str = "rescale",
         max_workers: int | None = None,
+        jobs: int = 1,
     ) -> None:
         self.out_dir   = pathlib.Path(out_dir)
         self.model     = model
@@ -137,6 +139,7 @@ class Orchestrator:
         self.shifts    = shifts
         self.overlap   = overlap
         self.clip_mode = clip_mode
+        self.jobs      = jobs
 
         # GPU contexts are not safe to share across spawned processes
         _is_gpu = self.device in ("cuda", "mps")
@@ -150,6 +153,7 @@ class Orchestrator:
             overlap=self.overlap,
             clip_mode=self.clip_mode,
             stem=self.stem,
+            jobs=self.jobs,
         )
 
         self._logger = get_logger("violingen.orchestrator")
@@ -207,6 +211,36 @@ class Orchestrator:
 
         return results
 
+    def post_process(self, stem_results, processed_dir=None):
+        """
+        Run the audio post-processing pipeline on stems produced by
+        :meth:`process`.
+
+        Parameters
+        ----------
+        stem_results : dict[str, str | Exception]
+            The dict returned by :meth:`process`.  Only successful (``str``)
+            values are passed to the post-processor; errors are skipped.
+        processed_dir : str or None
+            Output directory for cleaned WAVs, plots, and quality report.
+            Defaults to ``{self.out_dir}/processed``.
+
+        Returns
+        -------
+        list[dict]
+            One result dict per successfully post-processed file.
+            See :class:`PostProcessor` for field descriptions.
+        """
+        out_dir = pathlib.Path(processed_dir) if processed_dir else self.out_dir / "processed"
+        successful = [v for v in stem_results.values() if isinstance(v, str)]
+
+        if not successful:
+            self._logger.warning("post_process() — no successful stems to process.")
+            return []
+
+        pp = PostProcessor(out_dir=str(out_dir))
+        return pp.process(successful)
+
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
@@ -232,6 +266,7 @@ class Orchestrator:
             overlap=self.overlap,
             clip_mode=self.clip_mode,
             stem=self.stem,
+            jobs=self.jobs,
         )
         worker_args = [
             {"in_path": in_p, "out_path": out_p, "config": config}

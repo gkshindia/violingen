@@ -21,6 +21,8 @@ dependencies = [
     "matplotlib>=3.7.5",
     "torchcodec>=0.9.1",
     "tqdm>=4.67.3",
+    "librosa>=0.10.0",
+    "ruptures>=1.1.0",
 ]
 
 [project.optional-dependencies]
