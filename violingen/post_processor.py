@@ -17,6 +17,7 @@ from violingen.logging import get_logger
 N_FFT, HOP, PELT_PEN = 2048, 512, 3.0
 FREQ_LO, FREQ_HI     = 200, 4000
 HER_THRESH           = 0.4
+HPSS_MARGIN          = 2
 
 
 def _trim_pelt(y, sr):
@@ -62,7 +63,7 @@ def _remove_bleed(y, sr):
         S_gpu    = torch.stft(y_tensor, N_FFT, HOP, window=window, return_complex=True)
         S_mag    = S_gpu.abs().cpu().numpy()
 
-        H_mag, _ = librosa.decompose.hpss(S_mag)
+        H_mag, _ = librosa.decompose.hpss(S_mag, margin=HPSS_MARGIN)
         mask_np  = (H_mag / (S_mag + 1e-8)) * freq_mask
         mask_gpu = torch.tensor(mask_np, dtype=torch.float32, device=device)
 
@@ -73,7 +74,7 @@ def _remove_bleed(y, sr):
     except Exception:
         S        = librosa.stft(y, n_fft=N_FFT, hop_length=HOP)
         S_mag    = np.abs(S)
-        H_mag, _ = librosa.decompose.hpss(S_mag)
+        H_mag, _ = librosa.decompose.hpss(S_mag, margin=HPSS_MARGIN)
         mask     = (H_mag / (S_mag + 1e-8)) * freq_mask
         S_clean  = S * mask
         return librosa.istft(S_clean, hop_length=HOP, length=len(y)).astype(np.float32)
@@ -81,7 +82,7 @@ def _remove_bleed(y, sr):
 
 def _score(y_orig, y_trimmed, onset_samp, offset_samp, sr):
     S        = librosa.stft(y_trimmed, n_fft=N_FFT, hop_length=HOP)
-    H, _     = librosa.decompose.hpss(np.abs(S))
+    H, _     = librosa.decompose.hpss(np.abs(S), margin=HPSS_MARGIN)
     harmonic_ratio = float(np.mean(H ** 2) / (np.mean(np.abs(S) ** 2) + 1e-8))
 
     rms_active    = float(np.sqrt(np.mean(y_trimmed ** 2)))
