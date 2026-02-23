@@ -24,7 +24,6 @@ class StemSplitter:
         self.jobs = jobs
 
     def split(self, in_file_path, out_file_path):
-        import demucs.separate
         import soundfile as sf
 
         in_path  = pathlib.Path(in_file_path).expanduser().resolve()
@@ -38,7 +37,7 @@ class StemSplitter:
 
         with tempfile.TemporaryDirectory(prefix="demucs_") as tmp_dir:
             for m in _models:
-                self._run_demucs(str(in_path), tmp_dir, demucs.separate, model=m, device=device)
+                self._run_demucs(str(in_path), tmp_dir, model=m, device=device)
 
             path_a = self._locate_stem(tmp_dir, in_path.stem, model=_models[0])
             path_b = self._locate_stem(tmp_dir, in_path.stem, model=_models[1])
@@ -49,17 +48,26 @@ class StemSplitter:
         print(f"ensemble(htdemucs, htdemucs_ft) saved → {out_path}")
         return str(out_path)
 
-    def _run_demucs(self, in_file, out_dir, demucs_separate, model=None, device=None):
-        demucs_separate.main([
-            "-n", model or self.model,
-            "-d", device or self.device,
-            "--shifts", str(self.shifts),
-            "--overlap", str(self.overlap),
-            "--clip-mode", self.clip_mode,
-            "-j", str(self.jobs),
-            "--out", out_dir,
-            in_file,
-        ])
+    def _run_demucs(self, in_file, out_dir, model=None, device=None):
+        import subprocess
+        import sys
+        # Run demucs in a subprocess so that CUDA-cleanup segfaults during
+        # teardown don't kill the main process.  The stems are written to
+        # out_dir before any crash occurs; _locate_stem() validates them.
+        subprocess.run(
+            [
+                sys.executable, "-m", "demucs",
+                "-n", model or self.model,
+                "-d", device or self.device,
+                "--shifts", str(self.shifts),
+                "--overlap", str(self.overlap),
+                "--clip-mode", self.clip_mode,
+                "-j", str(self.jobs),
+                "--out", out_dir,
+                in_file,
+            ],
+            check=False,
+        )
 
     def _locate_stem(self, out_dir, audio_stem, model=None):
         m = model or self.model
