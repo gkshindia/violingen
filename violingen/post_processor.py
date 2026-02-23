@@ -178,6 +178,19 @@ class PostProcessor:
 
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
+        # Skip files whose processed WAV already exists (resume after crash/interrupt)
+        pending = [
+            p for p in file_paths
+            if not (self.out_dir / (pathlib.Path(p).stem + "_processed.wav")).exists()
+        ]
+        n_skip = len(file_paths) - len(pending)
+        if n_skip:
+            self._logger.info(f"Skipping {n_skip} already-processed file(s), {len(pending)} remaining.")
+        if not pending:
+            self._logger.info("All files already post-processed.")
+            return []
+        file_paths = pending
+
         worker_args = [
             {
                 "in_path":   str(p),
@@ -227,10 +240,12 @@ class PostProcessor:
 
     def _write_report(self, rows):
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        with open(self.report_csv, "w", newline="") as fh:
+        write_header = not self.report_csv.exists()
+        with open(self.report_csv, "a", newline="") as fh:
             writer = csv.DictWriter(
                 fh,
                 fieldnames=["filename", "harmonic_ratio", "contrast_ratio", "duration", "low_quality"],
             )
-            writer.writeheader()
+            if write_header:
+                writer.writeheader()
             writer.writerows(rows)
