@@ -15,9 +15,9 @@ import torch
 from violingen.logging import get_logger
 
 N_FFT, HOP, PELT_PEN = 2048, 512, 3.0
-FREQ_LO, FREQ_HI     = 200, 4000
+FREQ_LO, FREQ_HI     = 100, 4400
 HER_THRESH           = 0.4
-HPSS_MARGIN          = 2
+HPSS_MARGIN          = 4.0
 
 
 def _trim_pelt(y, sr):
