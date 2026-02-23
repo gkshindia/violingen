@@ -144,6 +144,10 @@ class Orchestrator:
         # GPU contexts are not safe to share across spawned processes
         _is_gpu = self.device in ("cuda", "mps")
         self.max_workers = 1 if _is_gpu else (max_workers or os.cpu_count() or 1)
+        # DataLoader worker subprocesses inherit the CUDA context and segfault on
+        # teardown; run data loading in-process (jobs=0) on GPU to avoid this.
+        if _is_gpu:
+            self.jobs = 0
 
         # Reused on the GPU serial path (avoid re-loading model per file)
         self._splitter = StemSplitter(
