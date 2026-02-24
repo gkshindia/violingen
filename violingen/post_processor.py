@@ -22,7 +22,7 @@ HPSS_MARGIN          = 4.0
 
 def _trim_pelt(y, sr):
     rms  = librosa.feature.rms(y=y, hop_length=HOP)[0]
-    bkps = ruptures.Pelt(model="rbf").fit(rms.reshape(-1, 1).astype(np.float64)).predict(pen=PELT_PEN)
+    bkps = ruptures.Pelt(model="l2").fit(rms.reshape(-1, 1).astype(np.float64)).predict(pen=PELT_PEN)
 
     onset_frame  = bkps[0]  if len(bkps) >= 2 else 0
     offset_frame = bkps[-2] if len(bkps) >= 3 else len(rms)
