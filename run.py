@@ -3,7 +3,7 @@ import multiprocessing
 import pathlib
 
 from violingen import Orchestrator
-from violingen.post_processor import PostProcessor
+from violingen.stem_cleaner import StemCleaner
 
 SOURCE_DIR = pathlib.Path("datasets")
 OUTPUT_DIR = pathlib.Path("output/separated")
@@ -53,7 +53,7 @@ def run_postprocess():
     if not to_process:
         print("No separated files pending post-processing.")
         return
-    pp = PostProcessor(out_dir=str(OUTPUT_DIR / "processed"))
+    pp = StemCleaner(out_dir=str(OUTPUT_DIR / "processed"))
     pp.process(to_process)
 
 

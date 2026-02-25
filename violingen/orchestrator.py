@@ -52,7 +52,7 @@ from violingen.logging import (
     log_file_error,
     log_file_result,
 )
-from violingen.post_processor import PostProcessor
+from violingen.stem_cleaner import StemCleaner
 from violingen.stem_splitter import StemSplitter
 from violingen.utils import format_elapsed, make_progress_bar
 
@@ -233,7 +233,7 @@ class Orchestrator:
         -------
         list[dict]
             One result dict per successfully post-processed file.
-            See :class:`PostProcessor` for field descriptions.
+            See :class:`StemCleaner` for field descriptions.
         """
         out_dir = pathlib.Path(processed_dir) if processed_dir else self.out_dir / "processed"
         successful = [v for v in stem_results.values() if isinstance(v, str)]
@@ -242,7 +242,7 @@ class Orchestrator:
             self._logger.warning("post_process() — no successful stems to process.")
             return []
 
-        pp = PostProcessor(out_dir=str(out_dir))
+        pp = StemCleaner(out_dir=str(out_dir))
         return pp.process(successful)
 
     # ------------------------------------------------------------------
