@@ -68,6 +68,3 @@ if __name__ == "__main__":
 
     if not args.postprocess_only:
         run_split()
-
-    if not args.split_only:
-        run_postprocess()

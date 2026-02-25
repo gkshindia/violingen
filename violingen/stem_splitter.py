@@ -96,9 +96,17 @@ class StemSplitter:
         for c in range(wav_a.shape[0]):
             S_a = torch.stft(wav_a[c], n_fft, hop, window=window, return_complex=True)
             S_b = torch.stft(wav_b[c], n_fft, hop, window=window, return_complex=True)
-            mask = S_a.abs() >= S_b.abs()
-            S_max = torch.where(mask, S_a, S_b)
-            ch = torch.istft(S_max, n_fft, hop, window=window, length=wav_a.shape[-1])
+
+            # Soft magnitude-weighted blend: avoids hard phase switches that
+            # cause crackling / discontinuities in the reconstructed waveform.
+            mag_a = S_a.abs()
+            mag_b = S_b.abs()
+            total = mag_a + mag_b + 1e-8
+            w_a = mag_a / total
+            w_b = mag_b / total
+            S_blended = w_a * S_a + w_b * S_b
+
+            ch = torch.istft(S_blended, n_fft, hop, window=window, length=wav_a.shape[-1])
             out_channels.append(ch)
 
         return torch.stack(out_channels).numpy(), sr
