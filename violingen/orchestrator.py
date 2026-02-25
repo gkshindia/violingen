@@ -52,7 +52,6 @@ from violingen.logging import (
     log_file_error,
     log_file_result,
 )
-from violingen.stem_cleaner import StemCleaner
 from violingen.stem_splitter import StemSplitter
 from violingen.utils import format_elapsed, make_progress_bar
 
@@ -214,36 +213,6 @@ class Orchestrator:
         log_batch_summary(self._logger, n_ok, n_fail, total_elapsed)
 
         return results
-
-    def post_process(self, stem_results, processed_dir=None):
-        """
-        Run the audio post-processing pipeline on stems produced by
-        :meth:`process`.
-
-        Parameters
-        ----------
-        stem_results : dict[str, str | Exception]
-            The dict returned by :meth:`process`.  Only successful (``str``)
-            values are passed to the post-processor; errors are skipped.
-        processed_dir : str or None
-            Output directory for cleaned WAVs, plots, and quality report.
-            Defaults to ``{self.out_dir}/processed``.
-
-        Returns
-        -------
-        list[dict]
-            One result dict per successfully post-processed file.
-            See :class:`StemCleaner` for field descriptions.
-        """
-        out_dir = pathlib.Path(processed_dir) if processed_dir else self.out_dir / "processed"
-        successful = [v for v in stem_results.values() if isinstance(v, str)]
-
-        if not successful:
-            self._logger.warning("post_process() — no successful stems to process.")
-            return []
-
-        pp = StemCleaner(out_dir=str(out_dir))
-        return pp.process(successful)
 
     # ------------------------------------------------------------------
     # Private helpers
